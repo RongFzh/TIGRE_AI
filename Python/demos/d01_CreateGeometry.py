@@ -107,7 +107,7 @@ geo.rotDetector = np.array([0, 0, 0])  # Rotation of the detector, by
 # This can also be defined per
 # angle
 
-geo.mode = "cone"  # Or 'parallel'. Geometry type.
+geo.mode = "cone"  # Or 'parallel'. Geometry type. 使用锥形束
 
 #%% Print the Geometry
 print(geo)
