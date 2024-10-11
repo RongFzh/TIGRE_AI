@@ -57,7 +57,7 @@
 %           of the detector from the x axis
 
 % Shows Geometry diagram
-showGeoCBCTDiagram();
+% showGeoCBCTDiagram(); % 无法下载图片，报错。
 
 %% Example
 %
@@ -66,19 +66,19 @@ showGeoCBCTDiagram();
 % VARIABLE                                   DESCRIPTION                    UNITS
 %-------------------------------------------------------------------------------------
 % Distances
-geo.DSD = 1536;                             % Distance Source Detector      (mm)
+geo.DSD = 1536;                             % Distance Source Detector      (mm) 投影角为0时, 源在x轴正轴上, 投影角增大, 源逆时针旋转. 类似向量定义.
 geo.DSO = 1000;                             % Distance Source Origin        (mm)
 % Detector parameters
-geo.nDetector=[512; 512];					% number of pixels              (px)
-geo.dDetector=[0.8; 0.8]; 					% size of each pixel            (mm)
-geo.sDetector=geo.nDetector.*geo.dDetector; % total size of the detector    (mm)
-% Image parameters
+geo.nDetector=[512; 512];					% number of pixels              (px) 也就是投影矩阵的宽和高
+geo.dDetector=[0.8; 0.8]; 					% size of each pixel            (mm) 像素大小
+geo.sDetector=geo.nDetector.*geo.dDetector; % total size of the detector    (mm) 投影幅面
+% Image parameters image指的是断层图不是投影图
 geo.nVoxel=[256;256;256];                   % number of voxels              (vx)
 geo.sVoxel=[256;256;256];                   % total size of the image       (mm)
 geo.dVoxel=geo.sVoxel./geo.nVoxel;          % size of each voxel            (mm)
 % Offsets
-geo.offOrigin =[0;0;0];                     % Offset of image from origin   (mm)              
-geo.offDetector=[0; 0];                     % Offset of Detector            (mm)
+geo.offOrigin =[0; 0; 0];                     % Offset of image from origin   (mm) 用于偏中心重建？    物体中心偏移坐标【x,y,z】         
+geo.offDetector=[0; 0];                     % Offset of Detector            (mm) 平板中心偏移坐标[y,z]
                                             % These two can be also defined
                                             % per angle
 
@@ -94,13 +94,13 @@ geo.accuracy=0.5;                           % Variable to define accuracy of
 % reconstruction
                                             
                                             
-geo.COR=0;                                  % y direction displacement for 
+geo.COR=0;                                  % y direction displacement for  # 旋转中心的y方向偏置. 相当于不改变SID时改变了DSO? 设置这个参数的意义是什么?
                                             % centre of rotation
                                             % correction                   (mm)
                                             % This can also be defined per
                                             % angle
                                             
-geo.rotDetector=[0;0;0];                    % Rotation of the detector, by 
+geo.rotDetector=[0;0;0];                 % Rotation of the detector, by  # plotgeometry未定义探测器旋转的绘制. 待确认此参数在投影和重建中是否有作用. 以X轴为轴的旋转是内部旋转.
                                             % X,Y and Z axis respectively. (rad)
                                             % This can also be defined per
                                             % angle        
@@ -117,4 +117,4 @@ geoParallel=defaultGeometry('mode','parallel');
 % etc
 %% Plot the geometry
                                             
-plotgeometry(geo,-pi/6);                   
+plotgeometry(geo,0);                   
