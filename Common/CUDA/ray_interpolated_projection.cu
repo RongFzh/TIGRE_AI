@@ -72,7 +72,7 @@ do { \
     
     
 #define MAXTREADS 1024
-#define PROJ_PER_BLOCK 9
+#define PROJ_PER_BLOCK 9 // 一个GPU block 代表的 proj数量, 同时处理这些数量的投影图
 #define PIXEL_SIZE_BLOCK 9
     /*GEOMETRY DEFINITION
      *
@@ -113,7 +113,7 @@ __global__ void vecAddInPlaceInterp(float *a, float *b, unsigned long  n)
         a[idx] = a[idx] + b[idx];
 }
 
-
+// 投影函数.
 template<bool sphericalrotation>
         __global__ void kernelPixelDetector( Geometry geo,
         float* detector,
@@ -179,11 +179,15 @@ template<bool sphericalrotation>
 //  Because I have no idea how to efficiently cutoff the legth path in 3D, a very upper limit is computed (see maxdistanceCuboid)
 //  for the 3D case. However it would be bad to lose performance in the 3D case
 //  TODO: can ge really improve this?
-    if (sphericalrotation){
+    if (sphericalrotation)
+    { 
+        // 球形扫描. 球管不是简单的一个平面里面的圆周运动. 有三个角度规定球管的位置.
         if ((2*DSO/fminf(fminf(geo.dVoxelX,geo.dVoxelY),geo.dVoxelZ)+cropdist_init)/geo.accuracy  <   length)
             length=ceilf((2*DSO/fminf(fminf(geo.dVoxelX,geo.dVoxelY),geo.dVoxelZ)+cropdist_init)/geo.accuracy);
     }
-    else{
+    else
+    { 
+        // 普通圆周扫描
         if ((2*DSO/fminf(geo.dVoxelX,geo.dVoxelY)+cropdist_init)/geo.accuracy  <   length)
             length=ceilf((2*DSO/fminf(geo.dVoxelX,geo.dVoxelY)+cropdist_init)/geo.accuracy);
     }
@@ -208,6 +212,7 @@ template<bool sphericalrotation>
 
 
 // legnth(angles)=3 x nagnles, as we have roll, pitch, yaw.
+// Ax_mex.cpp 调用.
 int interpolation_projection(float  *  img, Geometry geo, float** result,float const * const angles,int nangles, const GpuIds& gpuids){
     
     
@@ -246,7 +251,7 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
         size_t mem_free=mem_GPU_global-4*PROJ_PER_BLOCK*mem_proj;
         splits=mem_image/mem_free+1;// Ceil of the truncation
     }
-    Geometry* geoArray = (Geometry*)malloc(splits*sizeof(Geometry));
+    Geometry* geoArray = (Geometry*)malloc(splits*sizeof(Geometry)); // GPU资源不足,需要分段处理的geo
     splitImageInterp(splits,geo,geoArray,nangles);
     
     // Allocate auiliary memory for projections on the GPU to accumulate partial results
@@ -298,7 +303,7 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
     Point3D source, deltaU, deltaV, uvOrigin;
     
     Point3D* projParamsArrayHost = 0;
-    cudaMallocHost((void**)&projParamsArrayHost,4*PROJ_PER_BLOCK*sizeof(Point3D));
+    cudaMallocHost((void**)&projParamsArrayHost,4*PROJ_PER_BLOCK*sizeof(Point3D)); // Allocates page-locked memory on the host
     float* projFloatsArrayHost = 0;
     cudaMallocHost((void**)&projFloatsArrayHost,2*PROJ_PER_BLOCK*sizeof(float));
     cudaCheckErrors("Error allocating auxiliary constant memory");
@@ -318,7 +323,7 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
     cudaCheckErrors("Stream creation fail");
     int nangles_device=(nangles+deviceCount-1)/deviceCount;
     int nangles_last_device=(nangles-(deviceCount-1)*nangles_device);
-    unsigned int noOfKernelCalls = (nangles_device+PROJ_PER_BLOCK-1)/PROJ_PER_BLOCK;  // We'll take care of bounds checking inside the loop if nalpha is not divisible by PROJ_PER_BLOCK
+    unsigned int noOfKernelCalls = (nangles_device+PROJ_PER_BLOCK-1)/PROJ_PER_BLOCK;  // We'll take care of bounds checking inside the loop if nalpha is not divisible by PROJ_PER_BLOCK . noOfKernelCalls应该是投影数量除以PROJ_PER_BLOCK.
     unsigned int noOfKernelCallsLastDev = (nangles_last_device+PROJ_PER_BLOCK-1)/PROJ_PER_BLOCK; // we will use this in the memory management.
     int projection_this_block;
 
@@ -362,7 +367,7 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
                     geoArray[sp].theta=angles[proj_global*3+1];
                     geoArray[sp].psi  =angles[proj_global*3+2];
                     
-                    is_spherical+=abs(geoArray[sp].theta)+abs(geoArray[sp].psi);
+                    is_spherical+=abs(geoArray[sp].theta)+abs(geoArray[sp].psi); // 投影角度其他两个角度维度都是0值, is_spherical为0. 这是典型的圆周扫描.
                     
                     //precomute distances for faster execution
                     maxdist=maxdistanceCuboid(geoArray[sp],proj_global);
@@ -385,10 +390,10 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
                 
                 //TODO: we could do this around X and Y axis too, but we would need to compute the new axis of rotation (not possible to know from jsut the angles)
                 if (!is_spherical){
-                    kernelPixelDetector<false><<<grid,block,0,stream[dev*nStream_device]>>>(geoArray[sp],dProjection[(i%2)+dev*2],i,nangles_device,texImg[dev]);
+                    kernelPixelDetector<false><<<grid,block,0,stream[dev*nStream_device]>>>(geoArray[sp],dProjection[(i%2)+dev*2],i,nangles_device,texImg[dev]); // 普通圆周扫描
                 }
                 else{
-                    kernelPixelDetector<true> <<<grid,block,0,stream[dev*nStream_device]>>>(geoArray[sp],dProjection[(i%2)+dev*2],i,nangles_device,texImg[dev]);
+                    kernelPixelDetector<true> <<<grid,block,0,stream[dev*nStream_device]>>>(geoArray[sp],dProjection[(i%2)+dev*2],i,nangles_device,texImg[dev]); // 球形扫描
                 }
             }
             
@@ -546,6 +551,8 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
 //     cudaDeviceReset();
     return 0;
 }
+
+
 void CreateTextureInterp(const GpuIds& gpuids,const float* imagedata,Geometry geo,cudaArray** d_cuArrTex, cudaTextureObject_t *texImage,bool allocate)
 {
     const unsigned int num_devices = gpuids.GetLength();

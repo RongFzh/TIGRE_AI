@@ -59,10 +59,22 @@
 
 /**
  * MEX gateway
+ 
+ mxGetData: 获取数据阵列中的数据 void *mxGetData(const mxArray *pa ); 
+
+ mxGetScalar(prhs[0]) ：把通过prhs[0]传递进来的mxArray类型的指针指向的数据（标量）赋给C程序里的变量;
+
+ mxGetPr(prhs[0]) :从指向mxArray类型数据的prhs[0]获得了指向double类型的指针
+
+ mxGetM(prhs[0]):获得矩阵的行数
+
+ mxGetN(prhs[0]):获得矩阵的列数
+ mxCreateDoubleMatrix(int m, int n, mxComplexity ComplexFlag) :实现内存的申请，m：待申请矩阵的行数 ； n：待申请矩阵的列数
+
  */
 
 
-
+// matlab 调用格式: projections=Ax_mex(img,geo,angles,ptype, gpuids.devices);
 void mexFunction(int  nlhs , mxArray *plhs[],
         int nrhs, mxArray const *prhs[])
 {
@@ -91,6 +103,7 @@ void mexFunction(int  nlhs , mxArray *plhs[],
         int* piGpuIds = (int*)mxGetData(prhs[4]);
         gpuids.SetIds(uiGpuCount, piGpuIds);
     }
+    
     ////////////////////////////
     // 4th argument is interpolated or ray-voxel/Siddon
     bool rayvoxel=false;
@@ -105,7 +118,10 @@ void mexFunction(int  nlhs , mxArray *plhs[],
         // If its not ray-voxel, its "interpolated"
         if (strcmp(krylov,"Siddon") == 0 || strcmp(krylov,"ray-voxel") == 0) //strcmp returs 0 if they are equal
             rayvoxel=true;
-    ///////////////////////// 3rd argument: angle of projection.
+    
+    
+    ///////////////////////
+    // 3rd argument: angle of projection.
     
     size_t mrows = mxGetM(prhs[2]);
     size_t nangles = mxGetN(prhs[2]);
@@ -114,7 +130,7 @@ void mexFunction(int  nlhs , mxArray *plhs[],
     
     
     double const * const anglesM= static_cast<double const *>(mxGetData(ptrangles));
-    // just copy paste the data to a float array
+    // just copy paste the data to a float array. angles长度是3*nangles
     float  *  angles= (float*)malloc(nangles*mrows*sizeof(float));
     for (int i=0;i<nangles*mrows;i++){
         angles[i]=(float)anglesM[i];
@@ -305,12 +321,12 @@ void mexFunction(int  nlhs , mxArray *plhs[],
     outsize[0]=geo.nDetecV;
     outsize[1]=geo.nDetecU;
     outsize[2]= nangles;
-    plhs[0] = mxCreateNumericArray(3, outsize, mxSINGLE_CLASS, mxREAL);
+    plhs[0] = mxCreateNumericArray(3, outsize, mxSINGLE_CLASS, mxREAL); // mxArray *mxCreateNumericArray(mwSize ndim, const mwSize *dims, mxClassID classid, mxComplexity ComplexFlag); 创建数组
     float *outProjections = (float*)mxGetPr(plhs[0]);  // WE will NOT be freeing this pointer!
     
     // MODIFICATION, RB, 5/12/2017: As said above, we do not allocate anything, just
     // set pointers in result to point to outProjections
-    float** result = (float**)malloc(nangles * sizeof(float*)); // This only allocates memory for pointers
+    float** result = (float**)malloc(nangles * sizeof(float*)); // This only allocates memory for pointers. result里面的元素是指针, 指向outProjections各帧的起始位置.
     unsigned long long projSizeInPixels = geo.nDetecU * geo.nDetecV;
     for (int i = 0; i < nangles; i++)
     {
@@ -323,7 +339,7 @@ void mexFunction(int  nlhs , mxArray *plhs[],
         if (rayvoxel){
             siddon_ray_projection(img,geo,result,angles,nangles, gpuids);
         }else{
-            interpolation_projection(img,geo,result,angles,nangles, gpuids);
+            interpolation_projection(img,geo,result,angles,nangles, gpuids); // interpolation. 精度更高.
         }
     }else{
         if (rayvoxel){

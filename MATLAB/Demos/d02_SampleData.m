@@ -58,12 +58,13 @@ geo=defaultGeometry();
 % head phantom
 %
 %
-head=headPhantom(geo.nVoxel); %default is 128^3
+head=headPhantom(geo.nVoxel); %default is 128^3 载入本地的\Common\datahead.mat数据(128x128x128 single),插补到目标大小.
 % show it
-plotImg(head,'Dim','Z');
-citeme('headPhantom')
+plotImg(head,'Dim','Z'); % 逐帧显示Z切面(横断面图) 
+citeme('headPhantom') % 文献引用信息: \MATLAB\Utilities\TIGRE.bib
 
 %% Real data
+% 转到SophiaBeads_demo.m ,需要提前调用项目外代码: I:\CodeSpace\sophiabeads-datasets-2.0\sophiaBeads.m
 
 % SophiaBeads_demo.m shows how to download and use the Sophia Beads
 % micro-CT dataset

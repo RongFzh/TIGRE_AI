@@ -23,7 +23,7 @@
 clear;
 close all;
 %% Geometry
-geo=defaultGeometry();
+geo=defaultGeometry(); % 默认cone beam
 %% Define angles of projection and load phatom image
 
 % define projection angles (in radians)
@@ -32,7 +32,7 @@ angles=linspace(0,2*pi,100);
 head=headPhantom(geo.nVoxel);
 
 % Simulate forward projection.
-% Strongly suggested to use 'iterpolated' option for more accurate
+% Strongly suggested to use 'interpolated' option for more accurate
 % projections. reduce geo.accuracy for better results
 projections=Ax(head,geo,angles,'interpolated');
 

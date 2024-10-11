@@ -77,10 +77,12 @@ geo.nVoxel=[256;256;256];                   % number of voxels              (vx)
 geo.sVoxel=[256;256;256];                   % total size of the image       (mm)
 geo.dVoxel=geo.sVoxel./geo.nVoxel;          % size of each voxel            (mm)
 % Offsets
-geo.offOrigin =[0; 0; 0];                     % Offset of image from origin   (mm) 用于偏中心重建？    物体中心偏移坐标【x,y,z】         
+geo.offOrigin =[0; 0; 0];                   % Offset of image from origin   (mm) 用于偏中心重建？    物体中心偏移坐标【x,y,z】    
+                                            % geo.offOrigin 尺寸可以是: 3x1 or 3xsize(angles,2)
+
 geo.offDetector=[0; 0];                     % Offset of Detector            (mm) 平板中心偏移坐标[y,z]
                                             % These two can be also defined
-                                            % per angle
+                                            % per angle, geo.offDetector 尺寸可以是: 2x1 or 2xsize(angles,2)
 
 % Auxiliary 
 geo.accuracy=0.5;                           % Variable to define accuracy of
@@ -98,12 +100,13 @@ geo.COR=0;                                  % y direction displacement for  # �
                                             % centre of rotation
                                             % correction                   (mm)
                                             % This can also be defined per
-                                            % angle
+                                            % angle.  
+                                            % geo.COR 尺寸可以是: 1x1 or 1xsize(angles,2)
                                             
 geo.rotDetector=[0;0;0];                 % Rotation of the detector, by  # plotgeometry未定义探测器旋转的绘制. 待确认此参数在投影和重建中是否有作用. 以X轴为轴的旋转是内部旋转.
                                             % X,Y and Z axis respectively. (rad)
                                             % This can also be defined per
-                                            % angle        
+                                            % angle     geo.rotDetector 尺寸可以是: 3x1 or 3xsize(angles,2)  
                                             
 geo.mode='cone';                            % Or 'parallel'. Geometry type.  
 
