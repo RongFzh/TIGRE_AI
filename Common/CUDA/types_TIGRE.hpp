@@ -46,6 +46,7 @@ Codes  : https://github.com/CERN/TIGRE
 #ifndef TYPES_CBCT
 #define TYPES_CBCT
 struct  Geometry {
+    // ToDo: image每一层设计一个旋转中心偏移量.
     // Geometry assumptions:
     //  -> Origin is at (0,0,0). Image center is there +offOrig
     //  -> at angle 0, source + image centre (without the offset) + detector centre (without offset) 
@@ -53,18 +54,18 @@ struct  Geometry {
     //  -> detector is orthonormal to projection plane.
     
     //Parameters part of the image geometry
-    int   nVoxelX, nVoxelY, nVoxelZ;
-    float sVoxelX, sVoxelY, sVoxelZ;
-    float dVoxelX, dVoxelY, dVoxelZ;
+    int   nVoxelX, nVoxelY, nVoxelZ; // 扫描物体各方向的体素数量
+    float sVoxelX, sVoxelY, sVoxelZ; // 扫描物体的尺寸, mm
+    float dVoxelX, dVoxelY, dVoxelZ; // 单个体素的尺寸, mm
     float *offOrigX,*offOrigY,*offOrigZ;
     float* DSO;
     // Parameters  of the Detector.
-    int   nDetecU, nDetecV;
-    float sDetecU, sDetecV;
-    float dDetecU, dDetecV;
+    int   nDetecU, nDetecV;         // 探测器各方向的pixel数量
+    float sDetecU, sDetecV;         // 探测器幅面, mm
+    float dDetecU, dDetecV;         // 探测器pixel尺寸, mm
     float *offDetecU, *offDetecV;
     float* DSD;
-    float* dRoll;
+    float* dRoll;                   // 探测器偏转角度
     float* dPitch;
     float* dYaw;
     // The base unit we are working with in mm. 
@@ -72,12 +73,14 @@ struct  Geometry {
     float unitY;
     float unitZ;
     
-    //rotation angle for e uler (ZYZ)
-    float alpha;
-    float theta;
-    float psi;
+    //rotation angle for e uler (ZYZ) 
+    // 一个geo只代表一个投影角, 为何offOrigX要设计成长度为nangles的向量?
+    float alpha;                    // 投影角
+    float theta;                    // 投影角
+    float psi;                      // 投影角
+    
     // Centre of Rotation correction.
-    float* COR;
+    float* COR;                     // 旋转中心的y方向偏置
     //Maximum length of cube
     float maxLength;
     //User option

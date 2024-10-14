@@ -194,7 +194,7 @@ void mexFunction(int  nlhs , mxArray *plhs[],
     bool coneBeam=true;
     Geometry geo;
     int c;
-    geo.unitX=1;geo.unitY=1;geo.unitZ=1;
+    geo.unitX=1;geo.unitY=1;geo.unitZ=1; // 这三个参数没有用到?
     for(int ifield=0; ifield<14; ifield++) {
         tmp=mxGetField(geometryMex,0,fieldnames[ifield]);
         if(tmp==NULL){

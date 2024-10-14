@@ -1,5 +1,5 @@
-%% DEMO 03: Generate sample data and add realistic CT noise to it.
-%
+%% DEMO 03: Generate sample data and add realistic CT noise to it. 
+% 从头颅3D image生成投影图, 并加噪声
 % This demo will show how to generate sample data for image reconstruction
 %
 %

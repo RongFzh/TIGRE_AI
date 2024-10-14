@@ -55,7 +55,8 @@
 %           -offOrigin:     3x1 matrix with the offset in mm of the centre of the image from the origin.
 %           -offDetector:   2x1 matrix with the offset in mm of the centre
 %           of the detector from the x axis
-
+%           todo: 旋转轴的偏转, 可以使用三维向量表示. 默认是(0,0,1). 或者使用三个角度表示
+%
 % Shows Geometry diagram
 % showGeoCBCTDiagram(); % 无法下载图片，报错。
 
@@ -79,10 +80,12 @@ geo.dVoxel=geo.sVoxel./geo.nVoxel;          % size of each voxel            (mm)
 % Offsets
 geo.offOrigin =[0; 0; 0];                   % Offset of image from origin   (mm) 用于偏中心重建？    物体中心偏移坐标【x,y,z】    
                                             % geo.offOrigin 尺寸可以是: 3x1 or 3xsize(angles,2)
+                                            % maxdistanceCuboid computeDeltas 调用
 
 geo.offDetector=[0; 0];                     % Offset of Detector            (mm) 平板中心偏移坐标[y,z]
                                             % These two can be also defined
                                             % per angle, geo.offDetector 尺寸可以是: 2x1 or 2xsize(angles,2)
+                                            % computeDeltas 调用
 
 % Auxiliary 
 geo.accuracy=0.5;                           % Variable to define accuracy of
@@ -102,11 +105,13 @@ geo.COR=0;                                  % y direction displacement for  # �
                                             % This can also be defined per
                                             % angle.  
                                             % geo.COR 尺寸可以是: 1x1 or 1xsize(angles,2)
+                                            % computeDeltas 调用
                                             
-geo.rotDetector=[0;0;0];                 % Rotation of the detector, by  # plotgeometry未定义探测器旋转的绘制. 待确认此参数在投影和重建中是否有作用. 以X轴为轴的旋转是内部旋转.
+geo.rotDetector=[0;0;0];                    % Rotation of the detector, by  # plotgeometry未定义探测器旋转的绘制. 
                                             % X,Y and Z axis respectively. (rad)
                                             % This can also be defined per
                                             % angle     geo.rotDetector 尺寸可以是: 3x1 or 3xsize(angles,2)  
+                                            % computeDeltas 调用
                                             
 geo.mode='cone';                            % Or 'parallel'. Geometry type.  
 

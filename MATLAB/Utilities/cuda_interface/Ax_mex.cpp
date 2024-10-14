@@ -75,6 +75,7 @@
 
 
 // matlab 调用格式: projections=Ax_mex(img,geo,angles,ptype, gpuids.devices);
+// MATLAB与C语言矩阵下标不同（一个列优先，一个行优先），做多维时需注意
 void mexFunction(int  nlhs , mxArray *plhs[],
         int nrhs, mxArray const *prhs[])
 {
@@ -124,7 +125,7 @@ void mexFunction(int  nlhs , mxArray *plhs[],
     // 3rd argument: angle of projection.
     
     size_t mrows = mxGetM(prhs[2]);
-    size_t nangles = mxGetN(prhs[2]);
+    size_t nangles = mxGetN(prhs[2]); // nangles是投影图数量
 
     mxArray const * const ptrangles=prhs[2];
     
@@ -183,7 +184,7 @@ void mexFunction(int  nlhs , mxArray *plhs[],
     int c;
     mxArray    *tmp;
     Geometry geo;
-    geo.unitX=1;geo.unitY=1;geo.unitZ=1;
+    geo.unitX=1;geo.unitY=1;geo.unitZ=1; // 这三个参数没有用到?
     bool coneBeam=true;
 //     mexPrintf("%d \n",nfields);
     for(int ifield=0; ifield<14; ifield++) {
@@ -321,7 +322,7 @@ void mexFunction(int  nlhs , mxArray *plhs[],
     outsize[0]=geo.nDetecV;
     outsize[1]=geo.nDetecU;
     outsize[2]= nangles;
-    plhs[0] = mxCreateNumericArray(3, outsize, mxSINGLE_CLASS, mxREAL); // mxArray *mxCreateNumericArray(mwSize ndim, const mwSize *dims, mxClassID classid, mxComplexity ComplexFlag); 创建数组
+    plhs[0] = mxCreateNumericArray(3, outsize, mxSINGLE_CLASS, mxREAL); // 创建数组 mxArray *mxCreateNumericArray(mwSize ndim, const mwSize *dims, mxClassID classid, mxComplexity ComplexFlag);
     float *outProjections = (float*)mxGetPr(plhs[0]);  // WE will NOT be freeing this pointer!
     
     // MODIFICATION, RB, 5/12/2017: As said above, we do not allocate anything, just
@@ -335,16 +336,26 @@ void mexFunction(int  nlhs , mxArray *plhs[],
     }
     
     // call the real function
-    if (coneBeam){
-        if (rayvoxel){
+    mexPrintf("Ax_mex: call interpolation_projection, for conebeam=%d, rayvoxel=%d \n", coneBeam, rayvoxel);
+    if (coneBeam)
+    {
+        if (rayvoxel)
+        {
             siddon_ray_projection(img,geo,result,angles,nangles, gpuids);
-        }else{
+        }
+        else
+        {
             interpolation_projection(img,geo,result,angles,nangles, gpuids); // interpolation. 精度更高.
         }
-    }else{
-        if (rayvoxel){
+    }
+    else
+    {
+        if (rayvoxel)
+        {
             siddon_ray_projection_parallel(img,geo,result,angles,nangles, gpuids);
-        }else{
+        }
+        else
+        {
             interpolation_projection_parallel(img,geo,result,angles,nangles, gpuids);
         }
     }

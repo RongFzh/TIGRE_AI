@@ -113,11 +113,11 @@ __global__ void vecAddInPlaceInterp(float *a, float *b, unsigned long  n)
         a[idx] = a[idx] + b[idx];
 }
 
-// 投影函数.
+// 投影函数. interpolation_projection调用: 
 template<bool sphericalrotation>
         __global__ void kernelPixelDetector( Geometry geo,
         float* detector,
-        const int currProjSetNumber,
+        const int currProjSetNumber,    // 投影集合的序号,不是投影图序号.
         const int totalNoOfProjections,
         cudaTextureObject_t tex){
     
@@ -128,6 +128,7 @@ template<bool sphericalrotation>
     if (u>= geo.nDetecU || v>= geo.nDetecV || projNumber>=PROJ_PER_BLOCK)
         return;
     
+// MATLAB 和 Fortran 默认使用列优先布局，而 C 和 C++ 使用行优先布局
 #if IS_FOR_MATLAB_TIGRE
     size_t idx =  (size_t)(u * (unsigned long long)geo.nDetecV + v)+ projNumber*(unsigned long long)geo.nDetecV *(unsigned long long)geo.nDetecU ;
 #else
@@ -145,7 +146,7 @@ template<bool sphericalrotation>
     Point3D source = projParamsArrayDev[4*projNumber+3];
     
     float DSO = projFloatsArrayDev[2*projNumber+0];
-    float cropdist_init = projFloatsArrayDev[2*projNumber+1];
+    float cropdist_init = projFloatsArrayDev[2*projNumber+1];// maxdistanceCuboid函数计算的dist限制.
     
     
     
@@ -154,17 +155,19 @@ template<bool sphericalrotation>
     unsigned long pixelU = u;
     
     
-    float vectX,vectY,vectZ;
+    float vectX,vectY,vectZ; // 单个积分点的尺寸
     Point3D P;
     P.x=(uvOrigin.x+pixelU*deltaU.x+pixelV*deltaV.x);
     P.y=(uvOrigin.y+pixelU*deltaU.y+pixelV*deltaV.y);
     P.z=(uvOrigin.z+pixelU*deltaU.z+pixelV*deltaV.z);
     
-    // Length is the ray length in normalized space
+    // Length is the ray length in normalized space. 射线长度,从S到投影点.
     float length=__fsqrt_rd((source.x-P.x)*(source.x-P.x)+(source.y-P.y)*(source.y-P.y)+(source.z-P.z)*(source.z-P.z));
-    //now legth is an integer of Nsamples that are required on this line
+    //now legth is an integer of Nsamples that are required on this line. length-射线路径上的积分点数量. 预定义单位0.5(<1.0)
     length=ceilf(__fdividef(length,geo.accuracy));//Divide the directional vector by an integer
-    vectX=__fdividef(P.x -source.x,length);
+    
+    
+    vectX=__fdividef(P.x -source.x,length); 
     vectY=__fdividef(P.y -source.y,length);
     vectZ=__fdividef(P.z -source.z,length);
     
@@ -202,6 +205,7 @@ template<bool sphericalrotation>
         sum += tex3D<float>(tex, tx+0.5f, ty+0.5f, tz+0.5f); // this line is 94% of time.
     }
     
+    // 单个积分点的射线长度
     float deltalength=sqrtf((vectX*geo.dVoxelX)*(vectX*geo.dVoxelX)+
             (vectY*geo.dVoxelY)*(vectY*geo.dVoxelY)+
             (vectZ*geo.dVoxelZ)*(vectZ*geo.dVoxelZ) );
@@ -212,7 +216,7 @@ template<bool sphericalrotation>
 
 
 // legnth(angles)=3 x nagnles, as we have roll, pitch, yaw.
-// Ax_mex.cpp 调用.
+// Ax_mex.cpp 调用: interpolation_projection(img,geo,result,angles,nangles, gpuids);
 int interpolation_projection(float  *  img, Geometry geo, float** result,float const * const angles,int nangles, const GpuIds& gpuids){
     
     
@@ -251,7 +255,7 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
         size_t mem_free=mem_GPU_global-4*PROJ_PER_BLOCK*mem_proj;
         splits=mem_image/mem_free+1;// Ceil of the truncation
     }
-    Geometry* geoArray = (Geometry*)malloc(splits*sizeof(Geometry)); // GPU资源不足,需要分段处理的geo
+    Geometry* geoArray = (Geometry*)malloc(splits*sizeof(Geometry)); // GPU资源不足,需要分段处理的geo, geo个数是分割数量,显存足够为1个. 
     splitImageInterp(splits,geo,geoArray,nangles);
     
     // Allocate auiliary memory for projections on the GPU to accumulate partial results
@@ -323,15 +327,16 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
     cudaCheckErrors("Stream creation fail");
     int nangles_device=(nangles+deviceCount-1)/deviceCount;
     int nangles_last_device=(nangles-(deviceCount-1)*nangles_device);
-    unsigned int noOfKernelCalls = (nangles_device+PROJ_PER_BLOCK-1)/PROJ_PER_BLOCK;  // We'll take care of bounds checking inside the loop if nalpha is not divisible by PROJ_PER_BLOCK . noOfKernelCalls应该是投影数量除以PROJ_PER_BLOCK.
+    unsigned int noOfKernelCalls = (nangles_device+PROJ_PER_BLOCK-1)/PROJ_PER_BLOCK;  // We'll take care of bounds checking inside the loop if nalpha is not divisible by PROJ_PER_BLOCK . noOfKernelCalls应该是投影数量除以PROJ_PER_BLOCK, 也就是调用kernel的次数.
     unsigned int noOfKernelCallsLastDev = (nangles_last_device+PROJ_PER_BLOCK-1)/PROJ_PER_BLOCK; // we will use this in the memory management.
     int projection_this_block;
-
-
+    
+    // debug: 输出参数信息
+    mexPrintf("interpolation_projection: slplits=%d, nonoOfKernelCalls=%d, deviceCount=%d,fits_in_memory=%d, nStreams=%d\n", splits, noOfKernelCalls, deviceCount, fits_in_memory, nStreams);
     
     cudaTextureObject_t *texImg = new cudaTextureObject_t[deviceCount];
     cudaArray **d_cuArrTex = new cudaArray*[deviceCount];
-    for (unsigned int sp=0;sp<splits;sp++){
+    for (unsigned int sp=0;sp<splits;sp++){ // 单显卡显存够用sp=0
         // Create texture objects for all GPUs
         
         
@@ -341,7 +346,9 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
         CreateTextureInterp(gpuids,&img[linear_idx_start],geoArray[sp],d_cuArrTex,texImg,!sp);
         cudaCheckErrors("Texture object creation fail");
         
-        
+        // grid划分成2维，block划分为3维 https://blog.csdn.net/dcrmg/article/details/54867507
+        // int blockId = blockIdx.x + blockIdx.y * gridDim.x;  
+        // int threadId = blockId * (blockDim.x * blockDim.y * blockDim.z)  + (threadIdx.z * (blockDim.x * blockDim.y))  + (threadIdx.y * blockDim.x) + threadIdx.x;  
         int divU,divV;
         divU=PIXEL_SIZE_BLOCK;
         divV=PIXEL_SIZE_BLOCK;
@@ -352,12 +359,15 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
         float maxdist;
         // Now that we have prepared the image (piece of image) and parameters for kernels
         // we project for all angles.
-        for (unsigned int i=0; i<noOfKernelCalls; i++) {
-            for (dev=0;dev<deviceCount;dev++){
+        for (unsigned int i=0; i<noOfKernelCalls; i++) // i循环, 每次处理PROJ_PER_BLOCK个投影图
+        {
+            for (dev=0;dev<deviceCount;dev++){ // 对于单个GPU, dev循环不起作用.
                 float is_spherical=0;
                 cudaSetDevice(gpuids[dev]);
                 
-                for(unsigned int j=0; j<PROJ_PER_BLOCK; j++){
+                for(unsigned int j=0; j<PROJ_PER_BLOCK; j++) // j循环, 一次处理PROJ_PER_BLOCK个投影集合, 逐个计算投影几何参数
+                {
+                    // proj_global 全局投影图的序号.
                     proj_global=(i*PROJ_PER_BLOCK+j)+dev*nangles_device;
                     if (proj_global>=nangles)
                         break;
@@ -367,11 +377,12 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
                     geoArray[sp].theta=angles[proj_global*3+1];
                     geoArray[sp].psi  =angles[proj_global*3+2];
                     
-                    is_spherical+=abs(geoArray[sp].theta)+abs(geoArray[sp].psi); // 投影角度其他两个角度维度都是0值, is_spherical为0. 这是典型的圆周扫描.
+                    //投影角度其他两个角度维度都是0值, is_spherical为0. 这是典型的圆周扫描.
+                    is_spherical+=abs(geoArray[sp].theta)+abs(geoArray[sp].psi); 
                     
                     //precomute distances for faster execution
                     maxdist=maxdistanceCuboid(geoArray[sp],proj_global);
-                    //Precompute per angle constant stuff for speed
+                    //Precompute per angle constant stuff for speed 每个投影图的几何参数计算.
                     computeDeltas(geoArray[sp], proj_global, &uvOrigin, &deltaU, &deltaV, &source);
                     //Ray tracing!
                     projParamsArrayHost[4*j]=uvOrigin;		// 6*j because we have 6 Point3D values per projection
@@ -379,7 +390,7 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
                     projParamsArrayHost[4*j+2]=deltaV;
                     projParamsArrayHost[4*j+3]=source;
                     
-                    projFloatsArrayHost[2*j]=geo.DSO[proj_global];
+                    1[2*j]=geo.DSO[proj_global];
                     projFloatsArrayHost[2*j+1]=floor(maxdist);
                 }
                 
@@ -388,7 +399,8 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
                 cudaStreamSynchronize(stream[dev*nStream_device]);
                 
                 
-                //TODO: we could do this around X and Y axis too, but we would need to compute the new axis of rotation (not possible to know from jsut the angles)
+                //TODO: we could do this around X and Y axis too, but we would need to compute the new axis of rotation (not possible to know from jsut the angles) 
+                // 调用kernel 函数, 投影操作, 一次处理PROJ_PER_BLOCK个投影图.
                 if (!is_spherical){
                     kernelPixelDetector<false><<<grid,block,0,stream[dev*nStream_device]>>>(geoArray[sp],dProjection[(i%2)+dev*2],i,nangles_device,texImg[dev]); // 普通圆周扫描
                 }
@@ -446,7 +458,7 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
                 }
             } // end accumulation case, where the image needs to be split 
 
-            // Now, lets get out the projections from the previous execution of the kernels.
+            // Now, lets get out the projections from the previous execution of the kernels. 当前循环取出上次执行的结果?
             if (i>0)
             {
                 for (dev = 0; dev < deviceCount; dev++)
@@ -482,7 +494,7 @@ int interpolation_projection(float  *  img, Geometry geo, float** result,float c
             }
         } // End noOfKernelCalls (i) loop.
         
-        // We still have the last set of projections to get out of GPUs
+        // We still have the last set of projections to get out of GPUs. 当前循环取出上次执行的结果,所以结束i循环需要再取一次数据.
         for (dev = 0; dev < deviceCount; dev++)
         {
             cudaSetDevice(gpuids[dev]);
@@ -635,22 +647,31 @@ void splitImageInterp(unsigned int splits,Geometry geo,Geometry* geoArray, unsig
 /* This code precomputes The location of the source and the Delta U and delta V (in the warped space)
  * to compute the locations of the x-rays. While it seems verbose and overly-optimized,
  * it does saves about 30% of each of the kernel calls. Thats something!
+ * 使用探测器和image的offset. deltaU和deltaV类似offset之后的u,v方向的坐标向量
  **/
-void computeDeltas(Geometry geo,unsigned int i, Point3D* uvorigin, Point3D* deltaU, Point3D* deltaV, Point3D* source){
+void computeDeltas(Geometry geo,unsigned int i, Point3D* uvorigin, Point3D* deltaU, Point3D* deltaV, Point3D* source)
+{
     Point3D S;
     S.x=geo.DSO[i];
     S.y=0;
     S.z=0;
     
     //End point
-    Point3D P,Pu0,Pv0;
+    Point3D P,Pu0,Pv0; // P是平板原点, Pu0和Pv0是两个相邻点
     
-    P.x  =-(geo.DSD[i]-geo.DSO[i]);   P.y  = geo.dDetecU*(0-((float)geo.nDetecU/2)+0.5);       P.z  = geo.dDetecV*(((float)geo.nDetecV/2)-0.5-0);
-    Pu0.x=-(geo.DSD[i]-geo.DSO[i]);   Pu0.y= geo.dDetecU*(1-((float)geo.nDetecU/2)+0.5);       Pu0.z= geo.dDetecV*(((float)geo.nDetecV/2)-0.5-0);
-    Pv0.x=-(geo.DSD[i]-geo.DSO[i]);   Pv0.y= geo.dDetecU*(0-((float)geo.nDetecU/2)+0.5);       Pv0.z= geo.dDetecV*(((float)geo.nDetecV/2)-0.5-1);
+    P.x  =-(geo.DSD[i]-geo.DSO[i]);   
+    P.y  = geo.dDetecU*(0-((float)geo.nDetecU/2)+0.5);       
+    P.z  = geo.dDetecV*(((float)geo.nDetecV/2)-0.5-0);
+    
+    Pu0.x=-(geo.DSD[i]-geo.DSO[i]);   
+    Pu0.y= geo.dDetecU*(1-((float)geo.nDetecU/2)+0.5);  //P.y+1   
+    Pu0.z= geo.dDetecV*(((float)geo.nDetecV/2)-0.5-0);  //P.z
+    
+    Pv0.x=-(geo.DSD[i]-geo.DSO[i]);   
+    Pv0.y= geo.dDetecU*(0-((float)geo.nDetecU/2)+0.5);  //P.y
+    Pv0.z= geo.dDetecV*(((float)geo.nDetecV/2)-0.5-1);  //P.z-1
+    
     // Geomtric trasnformations:
-    
-    
     // Now we have the Real world (OXYZ) coordinates of the bottom corner and its two neighbours.
     // The obkjective is to get a position of the detector in a coordinate system where:
     // 1-units are voxel size (in each direction can be different)
@@ -668,14 +689,14 @@ void computeDeltas(Geometry geo,unsigned int i, Point3D* uvorigin, Point3D* delt
     // Only the Z rotation will have a big influence in the image quality when they are small.
     // Still all rotations are supported
     
-    // To roll pitch jaw, the detector has to be in centered in OXYZ.
+    // To roll pitch jaw, the detector has to be in centered in OXYZ. 先把平板中心放在原点再旋转.
     P.x=0;Pu0.x=0;Pv0.x=0;
     
-    // Roll pitch yaw
+    // Roll pitch yaw 平板旋转
     rollPitchYaw(geo,i,&P);
     rollPitchYaw(geo,i,&Pu0);
     rollPitchYaw(geo,i,&Pv0);
-    //Now ltes translate the detector coordinates to DOD (original position on real coordinate system:
+    //Now ltes translate the detector coordinates to DOD (original position on real coordinate system: x坐标恢复到全局XYZ坐标系.
     P.x=P.x-(geo.DSD[i]-geo.DSO[i]);
     Pu0.x=Pu0.x-(geo.DSD[i]-geo.DSO[i]);
     Pv0.x=Pv0.x-(geo.DSD[i]-geo.DSO[i]);
@@ -689,36 +710,75 @@ void computeDeltas(Geometry geo,unsigned int i, Point3D* uvorigin, Point3D* delt
     //3: Rotate around RZ RY RZ
     Point3D Pfinal, Pfinalu0, Pfinalv0;
     Pfinal.x  =P.x;
-    Pfinal.y  =P.y  +geo.offDetecU[i]; Pfinal.z  =P.z  +geo.offDetecV[i];
+    Pfinal.y  =P.y  +geo.offDetecU[i]; 
+    Pfinal.z  =P.z  +geo.offDetecV[i];
+
     Pfinalu0.x=Pu0.x;
-    Pfinalu0.y=Pu0.y  +geo.offDetecU[i]; Pfinalu0.z  =Pu0.z  +geo.offDetecV[i];
+    Pfinalu0.y=Pu0.y  +geo.offDetecU[i]; 
+    Pfinalu0.z  =Pu0.z  +geo.offDetecV[i];
+
     Pfinalv0.x=Pv0.x;
-    Pfinalv0.y=Pv0.y  +geo.offDetecU[i]; Pfinalv0.z  =Pv0.z  +geo.offDetecV[i];
+    Pfinalv0.y=Pv0.y  +geo.offDetecU[i]; 
+    Pfinalv0.z  =Pv0.z  +geo.offDetecV[i];
     
+    // 根据投影角geo.alpha, theta, psi 进行三维旋转.
     eulerZYZ(geo,&Pfinal);
     eulerZYZ(geo,&Pfinalu0);
     eulerZYZ(geo,&Pfinalv0);
     eulerZYZ(geo,&S);
     
     
-    //3: Offset image (instead of offseting image, -offset everything else)
+    //3: Offset image (instead of offseting image, -offset everything else). 不偏置扫描物体, 偏置平板和源
     
-    Pfinal.x  =Pfinal.x-geo.offOrigX[i];     Pfinal.y  =Pfinal.y-geo.offOrigY[i];     Pfinal.z  =Pfinal.z-geo.offOrigZ[i];
-    Pfinalu0.x=Pfinalu0.x-geo.offOrigX[i];   Pfinalu0.y=Pfinalu0.y-geo.offOrigY[i];   Pfinalu0.z=Pfinalu0.z-geo.offOrigZ[i];
-    Pfinalv0.x=Pfinalv0.x-geo.offOrigX[i];   Pfinalv0.y=Pfinalv0.y-geo.offOrigY[i];   Pfinalv0.z=Pfinalv0.z-geo.offOrigZ[i];
-    S.x=S.x-geo.offOrigX[i];                 S.y=S.y-geo.offOrigY[i];                 S.z=S.z-geo.offOrigZ[i];
+    Pfinal.x  =Pfinal.x-geo.offOrigX[i];     
+    Pfinal.y  =Pfinal.y-geo.offOrigY[i];     
+    Pfinal.z  =Pfinal.z-geo.offOrigZ[i];
+
+    Pfinalu0.x=Pfinalu0.x-geo.offOrigX[i];  
+    Pfinalu0.y=Pfinalu0.y-geo.offOrigY[i];   
+    Pfinalu0.z=Pfinalu0.z-geo.offOrigZ[i];
+
+    Pfinalv0.x=Pfinalv0.x-geo.offOrigX[i];   
+    Pfinalv0.y=Pfinalv0.y-geo.offOrigY[i];   
+    Pfinalv0.z=Pfinalv0.z-geo.offOrigZ[i];
+
+    S.x=S.x-geo.offOrigX[i];                 
+    S.y=S.y-geo.offOrigY[i];                 
+    S.z=S.z-geo.offOrigZ[i];
     
     // As we want the (0,0,0) to be in a corner of the image, we need to translate everything (after rotation);
-    Pfinal.x  =Pfinal.x+geo.sVoxelX/2-geo.dVoxelX/2;      Pfinal.y  =Pfinal.y+geo.sVoxelY/2-geo.dVoxelY/2;          Pfinal.z  =Pfinal.z  +geo.sVoxelZ/2-geo.dVoxelZ/2;
-    Pfinalu0.x=Pfinalu0.x+geo.sVoxelX/2-geo.dVoxelX/2;    Pfinalu0.y=Pfinalu0.y+geo.sVoxelY/2-geo.dVoxelY/2;        Pfinalu0.z=Pfinalu0.z+geo.sVoxelZ/2-geo.dVoxelZ/2;
-    Pfinalv0.x=Pfinalv0.x+geo.sVoxelX/2-geo.dVoxelX/2;    Pfinalv0.y=Pfinalv0.y+geo.sVoxelY/2-geo.dVoxelY/2;        Pfinalv0.z=Pfinalv0.z+geo.sVoxelZ/2-geo.dVoxelZ/2;
-    S.x       =S.x+geo.sVoxelX/2-geo.dVoxelX/2;           S.y       =S.y+geo.sVoxelY/2-geo.dVoxelY/2;               S.z       =S.z      +geo.sVoxelZ/2-geo.dVoxelZ/2;
+    Pfinal.x  =Pfinal.x+geo.sVoxelX/2-geo.dVoxelX/2;      
+    Pfinal.y  =Pfinal.y+geo.sVoxelY/2-geo.dVoxelY/2;          
+    Pfinal.z  =Pfinal.z  +geo.sVoxelZ/2-geo.dVoxelZ/2;
+
+    Pfinalu0.x=Pfinalu0.x+geo.sVoxelX/2-geo.dVoxelX/2;    
+    Pfinalu0.y=Pfinalu0.y+geo.sVoxelY/2-geo.dVoxelY/2;        
+    Pfinalu0.z=Pfinalu0.z+geo.sVoxelZ/2-geo.dVoxelZ/2;
+
+    Pfinalv0.x=Pfinalv0.x+geo.sVoxelX/2-geo.dVoxelX/2;    
+    Pfinalv0.y=Pfinalv0.y+geo.sVoxelY/2-geo.dVoxelY/2;        
+    Pfinalv0.z=Pfinalv0.z+geo.sVoxelZ/2-geo.dVoxelZ/2;
+
+    S.x       =S.x+geo.sVoxelX/2-geo.dVoxelX/2;           
+    S.y       =S.y+geo.sVoxelY/2-geo.dVoxelY/2;               
+    S.z       =S.z+geo.sVoxelZ/2-geo.dVoxelZ/2;
     
-    //4. Scale everything so dVoxel==1
-    Pfinal.x  =Pfinal.x/geo.dVoxelX;      Pfinal.y  =Pfinal.y/geo.dVoxelY;        Pfinal.z  =Pfinal.z/geo.dVoxelZ;
-    Pfinalu0.x=Pfinalu0.x/geo.dVoxelX;    Pfinalu0.y=Pfinalu0.y/geo.dVoxelY;      Pfinalu0.z=Pfinalu0.z/geo.dVoxelZ;
-    Pfinalv0.x=Pfinalv0.x/geo.dVoxelX;    Pfinalv0.y=Pfinalv0.y/geo.dVoxelY;      Pfinalv0.z=Pfinalv0.z/geo.dVoxelZ;
-    S.x       =S.x/geo.dVoxelX;           S.y       =S.y/geo.dVoxelY;             S.z       =S.z/geo.dVoxelZ;
+    //4. Scale everything so dVoxel==1. 用voxel尺寸度量.
+    Pfinal.x  =Pfinal.x/geo.dVoxelX;      
+    Pfinal.y  =Pfinal.y/geo.dVoxelY;        
+    Pfinal.z  =Pfinal.z/geo.dVoxelZ;
+
+    Pfinalu0.x=Pfinalu0.x/geo.dVoxelX;    
+    Pfinalu0.y=Pfinalu0.y/geo.dVoxelY;      
+    Pfinalu0.z=Pfinalu0.z/geo.dVoxelZ;
+
+    Pfinalv0.x=Pfinalv0.x/geo.dVoxelX;    
+    Pfinalv0.y=Pfinalv0.y/geo.dVoxelY;      
+    Pfinalv0.z=Pfinalv0.z/geo.dVoxelZ;
+
+    S.x       =S.x/geo.dVoxelX;           
+    S.y       =S.y/geo.dVoxelY;             
+    S.z       =S.z/geo.dVoxelZ;
     
     
     //mexPrintf("COR: %f \n",geo.COR[i]);
@@ -727,10 +787,14 @@ void computeDeltas(Geometry geo,unsigned int i, Point3D* uvorigin, Point3D* delt
     float CORx, CORy;
     CORx=-geo.COR[i]*sin(geo.alpha)/geo.dVoxelX;
     CORy= geo.COR[i]*cos(geo.alpha)/geo.dVoxelY;
-    Pfinal.x+=CORx;   Pfinal.y+=CORy;
-    Pfinalu0.x+=CORx;   Pfinalu0.y+=CORy;
-    Pfinalv0.x+=CORx;   Pfinalv0.y+=CORy;
-    S.x+=CORx; S.y+=CORy;
+    Pfinal.x+=CORx;   
+    Pfinal.y+=CORy;
+    Pfinalu0.x+=CORx;   
+    Pfinalu0.y+=CORy;
+    Pfinalv0.x+=CORx;   
+    Pfinalv0.y+=CORy;
+    S.x+=CORx; 
+    S.y+=CORy;
     
     // return
     
@@ -746,7 +810,7 @@ void computeDeltas(Geometry geo,unsigned int i, Point3D* uvorigin, Point3D* delt
     
     *source=S;
 }
-
+// 应该是比较松散的射线距离的约束. 距离焦点一定距离内的voxel不需要参与投影运算
 float maxdistanceCuboid(Geometry geo,unsigned int i){
     ///////////
     // Compute initial "t" so we access safely as less as out of bounds as possible.
@@ -759,21 +823,25 @@ float maxdistanceCuboid(Geometry geo,unsigned int i){
     maxCubY=(geo.nVoxelY/2+ abs(geo.offOrigY[i])/geo.dVoxelY);
     maxCubZ=(geo.nVoxelZ/2+ abs(geo.offOrigZ[i])/geo.dVoxelZ);
     
-    float a,b;
+    float a,b; // 以voxel数量度量DSO
     a=geo.DSO[i]/geo.dVoxelX;
     b=geo.DSO[i]/geo.dVoxelY;
     
 //  As the return of this value is in "voxel space", the source may have an elliptical curve.
 //  The distance returned is the safe distance that can be skipped for a given angle alpha, before we need to start sampling.
     
-    if (geo.theta==0.0f & geo.psi==0.0f) // Special case, it will make the code faster
-        return max(a*b/sqrt(a*a*sin(geo.alpha)*sin(geo.alpha)+b*b*cos(geo.alpha)*cos(geo.alpha))-
-                sqrt(maxCubX*maxCubX+maxCubY*maxCubY),0.0f);
+    if (geo.theta==0.0f & geo.psi==0.0f) // Special case, it will make the code faster. 返回的值近似DSO的voxel度量数量
+        return max(a*b/sqrt(a*a*sin(geo.alpha)*sin(geo.alpha)+b*b*cos(geo.alpha)*cos(geo.alpha))-sqrt(maxCubX*maxCubX+maxCubY*maxCubY),0.0f);
+    
     //TODO: think of more special cases?
     return max(geo.DSO[i]/max(max(geo.dVoxelX,geo.dVoxelY),geo.dVoxelZ)-sqrt(maxCubX*maxCubX+maxCubY*maxCubY+maxCubZ*maxCubZ),0.0f);
 
 }
-void rollPitchYaw(Geometry geo,unsigned int i, Point3D* point){
+
+// 对探测器上的点进行三维旋转. 调用前先把探测器中心放在XYZ原点. 
+// 好像和参考文献中的变换矩阵T不一样? [Y Z X]顺序?  可能XYZ坐标系定义不同
+void rollPitchYaw(Geometry geo,unsigned int i, Point3D* point)
+{
     Point3D auxPoint;
     auxPoint.x=point->x;
     auxPoint.y=point->y;
@@ -792,7 +860,10 @@ void rollPitchYaw(Geometry geo,unsigned int i, Point3D* point){
             +cos(geo.dPitch[i])*cos(geo.dYaw[i])*auxPoint.z;
     
 }
-void eulerZYZ(Geometry geo,  Point3D* point){
+
+// 参考 https://zhuanlan.zhihu.com/p/45404840. 1-α, 2-θ, 3-psi, Z1Y2Z3变换.
+void eulerZYZ(Geometry geo,  Point3D* point)
+{
     Point3D auxPoint;
     auxPoint.x=point->x;
     auxPoint.y=point->y;
